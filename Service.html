@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Milton Roy Service Dashboard</title>
+
+<script src="js/xlsx.full.min.js"></script>
+
+<style>
+:root{
+    --bg:#081c34;
+    --card:#0f2a4d;
+    --accent:#ffd60a;
+    --text:#fff;
+}
+
+body{
+    margin:0;
+    font-family:Segoe UI;
+    background:var(--bg);
+    color:var(--text);
+}
+
+/* LOGIN */
+#authBox{
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+.auth-card{
+    background:var(--card);
+    padding:25px;
+    border-radius:12px;
+    width:300px;
+}
+.auth-card input{
+    width:100%;
+    padding:10px;
+    margin:8px 0;
+}
+
+/* HEADER */
+.header{
+    padding:15px;
+    display:flex;
+    justify-content:space-between;
+    background:#06172b;
+}
+
+/* TOOLBAR */
+.toolbar{
+    padding:10px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+button{
+    padding:8px 12px;
+    border:none;
+    cursor:pointer;
+    border-radius:6px;
+}
+
+/* TABLE */
+#records{ overflow-x:auto; }
+
+.table{
+    width:100%;
+    min-width:1000px;
+    border-collapse:collapse;
+    margin-top:10px;
+}
+.table th, .table td{
+    padding:8px;
+    border-bottom:1px solid #1f3d6b;
+}
+.table th{ background:#06172b; }
+
+/* GROUP UI */
+.section{
+    margin-top:20px;
+    border:1px solid #1f3d6b;
+    border-radius:10px;
+    overflow:hidden;
+}
+
+.year-header{
+    background:#ffd60a;
+    color:#000;
+    padding:10px;
+    font-weight:bold;
+}
+
+.month-header{
+    background:#0f2a4d;
+    padding:8px;
+    font-weight:bold;
+}
+
+/* FORM */
+.modal{
+    position:fixed;
+    bottom:-100%;
+    width:100%;
+    background:var(--card);
+    padding:20px;
+    transition:0.3s;
+}
+.modal.active{bottom:0;}
+
+.form-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:10px;
+}
+
+input{
+    width:100%;
+    padding:8px;
+    margin:5px 0;
+}
+
+/* FAB */
+.fab{
+    position:fixed;
+    bottom:20px;
+    right:20px;
+    width:60px;
+    height:60px;
+    border-radius:50%;
+    background:var(--accent);
+    font-size:30px;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="authBox">
+<div class="auth-card">
+<h3>Login / Signup</h3>
+<input id="username" placeholder="Username">
+<input id="password" type="password" placeholder="Password">
+<button onclick="signup()">Signup</button>
+<button onclick="login()">Login</button>
+</div>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none;">
+
+<div class="header">
+<h3>Milton Roy Service Dashboard</h3>
+<button onclick="logout()" style="background:red;color:#fff;">Logout</button>
+</div>
+
+<div class="toolbar">
+<button onclick="exportExcel()" style="background:#ffd60a;">Export Excel</button>
+
+<input type="file" id="importFile" accept=".xlsx,.xls">
+<button onclick="readExcel()" style="background:#0f2a4d;color:#fff;">Read File</button>
+
+<button onclick="window.print()" style="background:#0f2a4d;color:#fff;">Print</button>
+
+<button onclick="clearDB()" style="background:red;color:#fff;">Clear Data</button>
+</div>
+
+<div style="padding:15px;">
+Total Records: <b id="total">0</b>
+<div id="records"></div>
+</div>
+
+<button class="fab" onclick="openForm()">+</button>
+
+<!-- FORM -->
+<div class="modal" id="form">
+<h3>Add Record</h3>
+
+<div class="form-grid">
+<input id="date" type="date">
+<input id="customer" placeholder="Customer">
+<input id="model" placeholder="Pump Model">
+<input id="serial" placeholder="Serial Number">
+<input id="wis" placeholder="WIS Number">
+<input id="warranty" placeholder="Warranty">
+<input id="parts" placeholder="Parts">
+<input id="status" placeholder="Status">
+<input id="engineer" placeholder="Engineer">
+<input id="remarks" placeholder="Remarks">
+<input id="dispatch" type="date">
+</div>
+
+<button onclick="add()">Save</button>
+<button onclick="closeForm()">Cancel</button>
+</div>
+
+</div>
+
+<script>
+
+/* AUTH */
+function signup(){
+    if(!username.value || !password.value) return alert("Enter details");
+    localStorage.setItem("user_"+username.value,password.value);
+    alert("Signup success");
+}
+
+function login(){
+    if(localStorage.getItem("user_"+username.value) === password.value){
+        localStorage.setItem("auth","true");
+        showApp();
+    } else alert("Invalid login");
+}
+
+function logout(){
+    localStorage.removeItem("auth");
+    location.reload();
+}
+
+function showApp(){
+    authBox.style.display="none";
+    app.style.display="block";
+}
+
+if(localStorage.getItem("auth")==="true") showApp();
+
+/* DB */
+let db;
+const req=indexedDB.open("ServiceDB",1);
+
+req.onupgradeneeded=e=>{
+    db=e.target.result;
+    db.createObjectStore("records",{keyPath:"id",autoIncrement:true});
+};
+
+req.onsuccess=e=>{
+    db=e.target.result;
+    load();
+};
+
+/* FORM */
+function openForm(){ form.classList.add("active"); }
+function closeForm(){ form.classList.remove("active"); }
+
+/* ADD */
+function add(){
+let tx=db.transaction("records","readwrite");
+tx.objectStore("records").add({
+date:date.value,
+customer:customer.value,
+model:model.value,
+serial:serial.value,
+wis:wis.value,
+warranty:warranty.value,
+parts:parts.value,
+status:status.value,
+engineer:engineer.value,
+remarks:remarks.value,
+dispatch:dispatch.value
+});
+tx.oncomplete=()=>{ load(); closeForm(); };
+}
+
+/* LOAD */
+function load(){
+let tx=db.transaction("records","readonly");
+let req=tx.objectStore("records").getAll();
+req.onsuccess=()=>render(req.result);
+}
+
+/* DELETE */
+function del(id){
+let tx=db.transaction("records","readwrite");
+tx.objectStore("records").delete(id);
+tx.oncomplete=load;
+}
+
+/* 🔥 YEAR + MONTH + DAY GROUPING */
+function render(data){
+
+if(data.length===0){
+records.innerHTML="No records";
+total.innerText=0;
+return;
+}
+
+/* SORT */
+data.sort((a,b)=> new Date(b.date)-new Date(a.date));
+
+let grouped={};
+
+data.forEach(d=>{
+if(!d.date) return;
+
+let dt=new Date(d.date);
+let y=dt.getFullYear();
+let m=dt.toLocaleString('default',{month:'long'});
+let day=d.date;
+
+if(!grouped[y]) grouped[y]={};
+if(!grouped[y][m]) grouped[y][m]={};
+if(!grouped[y][m][day]) grouped[y][m][day]=[];
+
+grouped[y][m][day].push(d);
+});
+
+let html="";
+
+Object.keys(grouped).sort((a,b)=>b-a).forEach(year=>{
+
+html+=`<div class="section">
+<div class="year-header">Year ${year}</div>`;
+
+Object.keys(grouped[year]).forEach(month=>{
+
+html+=`<div class="month-header">${month}</div>`;
+
+Object.keys(grouped[year][month]).forEach(day=>{
+
+html+=`<table class="table">
+<tr>
+<th>Date</th><th>Customer</th><th>Model</th>
+<th>Serial</th><th>WIS</th><th>Warranty</th>
+<th>Parts</th><th>Status</th><th>Engineer</th>
+<th>Remarks</th><th>Dispatch</th><th>X</th>
+</tr>`;
+
+grouped[year][month][day].forEach(d=>{
+html+=`<tr>
+<td>${d.date||""}</td>
+<td>${d.customer||""}</td>
+<td>${d.model||""}</td>
+<td>${d.serial||""}</td>
+<td>${d.wis||""}</td>
+<td>${d.warranty||""}</td>
+<td>${d.parts||""}</td>
+<td>${d.status||""}</td>
+<td>${d.engineer||""}</td>
+<td>${d.remarks||""}</td>
+<td>${d.dispatch||""}</td>
+<td><button onclick="del(${d.id})">X</button></td>
+</tr>`;
+});
+
+html+=`</table>`;
+
+});
+
+});
+
+html+=`</div>`;
+});
+
+records.innerHTML=html;
+total.innerText=data.length;
+}
+
+/* IMPORT */
+function readExcel(){
+const file=importFile.files[0];
+if(!file) return alert("Select file");
+
+const reader=new FileReader();
+
+reader.onload=e=>{
+const data=new Uint8Array(e.target.result);
+const wb=XLSX.read(data,{type:"array"});
+const sheet=wb.Sheets[wb.SheetNames[0]];
+const json=XLSX.utils.sheet_to_json(sheet,{defval:""});
+
+let tx=db.transaction("records","readwrite");
+let store=tx.objectStore("records");
+
+json.forEach(r=>{
+store.add({
+date:r["Date"]||"",
+customer:r["Customer"]||"",
+model:r["Pump Model"]||"",
+serial:r["Dosing Pump Serial Number"]||"",
+wis:r["WIS Service Call Number"]||"",
+warranty:r["Warranty"]||"",
+parts:r["Parts Changed"]||"",
+status:r["Status"]||"",
+engineer:r["Service Attended By"]||"",
+remarks:r["Remarks"]||"",
+dispatch:r["Dispatch Date"]||""
+});
+});
+
+tx.oncomplete=()=>{ alert("Imported"); load(); };
+};
+
+reader.readAsArrayBuffer(file);
+}
+
+/* EXPORT */
+function exportExcel(){
+let tx=db.transaction("records","readonly");
+let req=tx.objectStore("records").getAll();
+
+req.onsuccess=()=>{
+let data=req.result.map(d=>({
+"Date":d.date,
+"Customer":d.customer,
+"Pump Model":d.model,
+"Dosing Pump Serial Number":d.serial,
+"WIS Service Call Number":d.wis,
+"Warranty":d.warranty,
+"Parts Changed":d.parts,
+"Status":d.status,
+"Service Attended By":d.engineer,
+"Remarks":d.remarks,
+"Dispatch Date":d.dispatch
+}));
+
+let ws=XLSX.utils.json_to_sheet(data);
+let wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,"Service Data");
+XLSX.writeFile(wb,"MiltonRoy_Service_Report.xlsx");
+};
+}
+
+/* CLEAR */
+function clearDB(){
+if(confirm("Delete all records?")){
+let tx=db.transaction("records","readwrite");
+tx.objectStore("records").clear();
+tx.oncomplete=load;
+}
+}
+
+</script>
+
+</body>
+</html>
